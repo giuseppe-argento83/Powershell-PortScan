@@ -1,5 +1,30 @@
+function CheckResourceFile {
+    $PortList_Path = "$PSScriptRoot\Resources\service-names-port-numbers.csv"
+
+    If(-not(Test-Path -Path $PortList_Path)){
+        Write-Error "Missing service-names-port-numbers.csv file." -ErrorAction Stop
+    }
+
+    $PortServices = @{}
+    ForEach($line in Get-Content -Path $PortList_Path) {
+        If(-not [string]::IsNullOrEmpty($line)){
+            Try{
+                $data = $line -split ","
+        
+                If ($data[2] -eq "tcp"){
+                    If([string]::IsNullOrEmpty($data[0])){
+                        $data[0] = "-"
+                    }
+                    $PortServices.Add([int]$data[1], $data[0])
+                }
+            }Catch [System.ArgumentException]{}
+        }
+    }
+    return $PortServices
+
+}
+
 function SendPing {
-    [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)]
         [string]$Hostname
@@ -137,12 +162,21 @@ function Scan{
         [Parameter(Mandatory=$true)]
         [string]$h,
         [Parameter(Mandatory=$true)]
-        [object]$ps
+        [object]$ps,
+        [Parameter(Mandatory=$true)]
+        [object]$PortList
     )
     $res = @()
     ForEach ($p in $ps){
         $port_res = @{}
         $port_res["Port"] = $p
+
+        If($PortList.Get_Item($p)){
+            $port_res["Service"] = $PortList.Get_Item($p)
+        }else{
+            $port_res["Service"] = "Unkwnown"
+        }
+
         
         try{
             $socket = New-Object System.Net.Sockets.TcpClient($h,$p)
@@ -190,6 +224,9 @@ function PortScanner{
     begin{
         $Hrange = @()
         $dPorts = @()
+
+        $PortList = CheckResourceFile
+
         Write-Host "Scan started at: " (Get-Date)
         Write-Host "----------------------------------------------"
         
@@ -235,7 +272,7 @@ function PortScanner{
                 if((SendPing -Hostname $target)){
                     $ObjTarget["Ping"] = "Reachable"
                     ##Scan Host
-                    $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts
+                    $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
                 }else{
                     $ObjTarget["Ping"] = "Unreachable"
                 }
@@ -244,7 +281,7 @@ function PortScanner{
             else{
                 $ObjTarget["Ping"] = "Not Requested"
                 ##Scan Host
-                $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts
+                $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
             }
             $Result += $ObjTarget
         }
@@ -255,4 +292,4 @@ function PortScanner{
         Write-Host "Script execution is terminated at: " (Get-Date)
     }
 }
-PortScanner -Hosts "192.168.1.0/27" -Ports "80,443,445" -Pn -n
+PortScanner -Hosts "google.com" -Ports "80,443,445" -Pn
