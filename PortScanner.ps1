@@ -164,9 +164,12 @@ function Scan{
         [Parameter(Mandatory=$true)]
         [object]$ps,
         [Parameter(Mandatory=$true)]
-        [object]$PortList
+        [object]$PortList,
+        [System.Management.Automation.SwitchParameter]$Open
     )
     $res = @()
+    $i = 1
+
     ForEach ($p in $ps){
         $port_res = @{}
         $port_res["Port"] = $p
@@ -179,18 +182,24 @@ function Scan{
 
         
         try{
-            $socket = New-Object System.Net.Sockets.TcpClient($h,$p)
-            if($socket.Connected){           
-                $port_res["Status"] = "Open"
-                $socket.Close()
+            $socket = New-Object System.Net.Sockets.TcpClient
+            $connect = $socket.BeginConnect($h,$p, $null, $null)
+            $wait = $connect.AsyncWaitHandle.WaitOne(100, $false)
+            
+            if(-not $wait){
+                $port_res["Status"] = "Closed"
             }else{
-                $port_res["Satus"] = "Closed"
+                $port_res["Status"] = "Open"
             }
             $res += $port_res
         }catch{
             $port_res["Status"] = "Closed"
             $res += $port_res
         }
+
+        #$percentage = ($i / $ps.Length) * 100
+        #Write-Progress -Id 2 -Activity "Scanning ports..." -Status "Port: $p" -PercentComplete $percentage
+        $i += 1
     }
     return $res
 }
@@ -220,6 +229,7 @@ function PortScanner{
         [System.Management.Automation.SwitchParameter]$Pn,
 
         [System.Management.Automation.SwitchParameter]$n
+
     )
     begin{
         $Hrange = @()
@@ -227,7 +237,8 @@ function PortScanner{
 
         $PortList = CheckResourceFile
 
-        Write-Host "Scan started at: " (Get-Date)
+        $t1 = Get-Date
+        Write-Host "Scan started at: $t1"
         Write-Host "----------------------------------------------"
         
         #If Hosts is an IP address
@@ -257,6 +268,8 @@ function PortScanner{
     }
     process{
         $Result = @()
+        $i = 1
+
         #Start Scan
         ForEach($target in $Hrange){
             $ObjTarget = @{}
@@ -283,13 +296,21 @@ function PortScanner{
                 ##Scan Host
                 $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
             }
+            $percentage = ($i / $Hrange.Length) * 100
+            Write-Progress -Id 1 -Activity "Scanning Host" -Status "Current host: $target" -PercentComplete $percentage
+            
             $Result += $ObjTarget
+            $i += 1
         }
     }
     end{
         Printer -Scan $Result
+        
         Write-Host "----------------------------------------------"
-        Write-Host "Script execution is terminated at: " (Get-Date)
+        $t2 = Get-Date
+        $elapsed = ($t2-$t1).totalseconds
+        Write-Host "Script execution is terminated at: $t2"
+        Write-Host "Elapsed: " $elapsed
     }
 }
-PortScanner -Hosts "google.com" -Ports "80,443,445" -Pn
+PortScanner -Hosts "192.168.1.0/24" -Ports "22,80,443,445" -Pn -n
