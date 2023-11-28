@@ -1,3 +1,53 @@
+<#
+.SYNOPSIS
+    Powershell TCP Port Scanner.
+
+.DESCRIPTION
+    This script performs TCP port scans, providing the option to specify an entire network.
+
+.PARAMETER Hosts
+    A hostname, an IPv4 address, or a network to be scanned.
+
+.PARAMETER Ports
+    A TCP port, a range of ports in the form x..x, or a series of ports separated by commas.
+
+.PARAMETER Pn
+    Optional. Disable ping for host verification before scanning.
+	
+.PARAMETER n
+    Optional. Disable dns lookup.
+	
+.EXAMPLE
+    TCP Scan providing a hostname with DSN Lookup and Ping validation.
+    .\PortScanner.ps1 -Hosts google.com -Ports 80,443
+
+.EXAMPLE
+    TCP Scan providing an IPv4 address with no DSN Lookup.
+	.\PortScanner.ps1 -Hosts 192.168.88.10 -n -Ports 80
+
+.EXAMPLE
+    TCP Scan providing a network address disabling both DNS lookup and ping verification..
+	.\PortScanner.ps1 -Hosts 192.168.88.0/24 -n -Pn -Ports 20..8080
+	
+.NOTES
+    Autore: Giuseppe Argento
+    Versione: 1.0
+    Data: 28/11/2023
+#>
+
+param(
+	[Parameter(Mandatory=$true, Position=0)]
+	[string]$Hosts,
+	
+	[Parameter(Mandatory=$true, Position=1)]
+	[string]$Ports,
+	
+	[System.Management.Automation.SwitchParameter]$Pn,
+
+	[System.Management.Automation.SwitchParameter]$n
+
+)
+
 function CheckResourceFile {
     $PortList_Path = "$PSScriptRoot\Resources\service-names-port-numbers.csv"
 
@@ -217,100 +267,88 @@ function Printer{
     }
 }
 
-function PortScanner{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$true, Position=0)]
-        [string]$Hosts,
-        
-        [Parameter(Mandatory=$true, Position=1)]
-        [string]$Ports,
-        
-        [System.Management.Automation.SwitchParameter]$Pn,
 
-        [System.Management.Automation.SwitchParameter]$n
+begin{
+	$Hrange = @()
+	$dPorts = @()
 
-    )
-    begin{
-        $Hrange = @()
-        $dPorts = @()
+	$PortList = CheckResourceFile
 
-        $PortList = CheckResourceFile
+	$t1 = Get-Date
+	Write-Host "Scan started at: $t1"
+	Write-Host "----------------------------------------------"
+	
+	#If Hosts is an IP address
+	if ($Hosts -match "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"){
+		#If a network address
+		if ($Hosts -match ".*/[0-9]+$"){
+			$Hrange = CalculateNetwork -NetIP $Hosts
+		#If Hosts is a single IP 
+		}else{
+			$Hrange += $Hosts
+		}
+	}
+	#If Hosts is a hostname
+	else{
+		$Hrange += $Hosts
+	}
+	#If no hosts to scan
+	if($Hrange.Length -eq 0){
+		Write-Error "No available hosts to scan." -ErrorAction Stop
+	}
 
-        $t1 = Get-Date
-        Write-Host "Scan started at: $t1"
-        Write-Host "----------------------------------------------"
-        
-        #If Hosts is an IP address
-        if ($Hosts -match "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"){
-            #If a network address
-            if ($Hosts -match ".*/[0-9]+$"){
-                $Hrange = CalculateNetwork -NetIP $Hosts
-            #If Hosts is a single IP 
-            }else{
-                $Hrange += $Hosts
-            }
-        }
-        #If Hosts is a hostname
-        else{
-            $Hrange += $Hosts
-        }
-        #If no hosts to scan
-        if($Hrange.Length -eq 0){
-            Write-Error "No available hosts to scan." -ErrorAction Stop
-        }
-
-        #Check Port values
-        $dPorts = CheckPortsValidity -p $Ports
-        if($dPorts.Length -eq 0){
-            Write-Error "No available ports to scan." -ErrorAction Stop
-        }
-    }
-    process{
-        $Result = @()
-        $i = 1
-
-        #Start Scan
-        ForEach($target in $Hrange){
-            $ObjTarget = @{}
-            #If DNS resolution
-            if(-not $n){
-                $ObjTarget["Hostname"] = (Resolve-DnsName -Name $target -Type A).IPAddress 
-            }else{
-                $ObjTarget["Hostname"] = $target
-            }
-            #If Ping option
-            if(-not $Pn){
-                #If host is reachable
-                if((SendPing -Hostname $target)){
-                    $ObjTarget["Ping"] = "Reachable"
-                    ##Scan Host
-                    $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
-                }else{
-                    $ObjTarget["Ping"] = "Unreachable"
-                }
-            }
-            #No Ping options
-            else{
-                $ObjTarget["Ping"] = "Not Requested"
-                ##Scan Host
-                $ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
-            }
-            $percentage = ($i / $Hrange.Length) * 100
-            Write-Progress -Id 1 -Activity "Scanning Host" -Status "Current host: $target" -PercentComplete $percentage
-            
-            $Result += $ObjTarget
-            $i += 1
-        }
-    }
-    end{
-        Printer -Scan $Result
-        
-        Write-Host "----------------------------------------------"
-        $t2 = Get-Date
-        $elapsed = ($t2-$t1).totalseconds
-        Write-Host "Script execution is terminated at: $t2"
-        Write-Host "Elapsed: " $elapsed
-    }
+	#Check Port values
+	$dPorts = CheckPortsValidity -p $Ports
+	if($dPorts.Length -eq 0){
+		Write-Error "No available ports to scan." -ErrorAction Stop
+	}
 }
-PortScanner -Hosts "192.168.1.0/24" -Ports "22,80,443,445" -Pn -n
+process{
+	$Result = @()
+	$i = 1
+
+	#Start Scan
+	ForEach($target in $Hrange){
+		$ObjTarget = @{}
+		#If DNS resolution
+		if(-not $n){
+			$ObjTarget["Hostname"] = (Resolve-DnsName -Name $target -Type A).IPAddress 
+		}else{
+			$ObjTarget["Hostname"] = $target
+		}
+		#If Ping option
+		if(-not $Pn){
+			#If host is reachable
+			if((SendPing -Hostname $target)){
+				$ObjTarget["Ping"] = "Reachable"
+				##Scan Host
+				$ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
+			}else{
+				$ObjTarget["Ping"] = "Unreachable"
+			}
+		}
+		#No Ping options
+		else{
+			$ObjTarget["Ping"] = "Not Requested"
+			##Scan Host
+			$ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
+		}
+		$percentage = ($i / $Hrange.Length) * 100
+		Write-Progress -Id 1 -Activity "Scanning Host" -Status "Current host: $target" -PercentComplete $percentage
+		
+		$Result += $ObjTarget
+		$i += 1
+	}
+}
+end{
+	Printer -Scan $Result
+	
+	Write-Host "----------------------------------------------"
+	$t2 = Get-Date
+	$elapsed = ($t2-$t1).totalseconds
+	Write-Host "Script execution is terminated at: $t2"
+	Write-Host "Elapsed: " $elapsed
+}
+
+
+#PortScanner -Hosts "192.168.1.0/24" -Ports "22,80,443,445" -Pn -n
