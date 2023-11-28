@@ -36,6 +36,7 @@
 #>
 
 param(
+	[CmdletBinding()]
 	[Parameter(Mandatory=$true, Position=0)]
 	[string]$Hosts,
 	
@@ -268,87 +269,83 @@ function Printer{
 }
 
 
-begin{
-	$Hrange = @()
-	$dPorts = @()
 
-	$PortList = CheckResourceFile
+$Hrange = @()
+$dPorts = @()
 
-	$t1 = Get-Date
-	Write-Host "Scan started at: $t1"
-	Write-Host "----------------------------------------------"
-	
-	#If Hosts is an IP address
-	if ($Hosts -match "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"){
-		#If a network address
-		if ($Hosts -match ".*/[0-9]+$"){
-			$Hrange = CalculateNetwork -NetIP $Hosts
-		#If Hosts is a single IP 
-		}else{
-			$Hrange += $Hosts
-		}
-	}
-	#If Hosts is a hostname
-	else{
+$PortList = CheckResourceFile
+
+$t1 = Get-Date
+Write-Host "Scan started at: $t1"
+Write-Host "----------------------------------------------"
+
+#If Hosts is an IP address
+if ($Hosts -match "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"){
+	#If a network address
+	if ($Hosts -match ".*/[0-9]+$"){
+		$Hrange = CalculateNetwork -NetIP $Hosts
+	#If Hosts is a single IP 
+	}else{
 		$Hrange += $Hosts
 	}
-	#If no hosts to scan
-	if($Hrange.Length -eq 0){
-		Write-Error "No available hosts to scan." -ErrorAction Stop
-	}
-
-	#Check Port values
-	$dPorts = CheckPortsValidity -p $Ports
-	if($dPorts.Length -eq 0){
-		Write-Error "No available ports to scan." -ErrorAction Stop
-	}
 }
-process{
-	$Result = @()
-	$i = 1
+#If Hosts is a hostname
+else{
+	$Hrange += $Hosts
+}
+#If no hosts to scan
+if($Hrange.Length -eq 0){
+	Write-Error "No available hosts to scan." -ErrorAction Stop
+}
 
-	#Start Scan
-	ForEach($target in $Hrange){
-		$ObjTarget = @{}
-		#If DNS resolution
-		if(-not $n){
-			$ObjTarget["Hostname"] = (Resolve-DnsName -Name $target -Type A).IPAddress 
-		}else{
-			$ObjTarget["Hostname"] = $target
-		}
-		#If Ping option
-		if(-not $Pn){
-			#If host is reachable
-			if((SendPing -Hostname $target)){
-				$ObjTarget["Ping"] = "Reachable"
-				##Scan Host
-				$ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
-			}else{
-				$ObjTarget["Ping"] = "Unreachable"
-			}
-		}
-		#No Ping options
-		else{
-			$ObjTarget["Ping"] = "Not Requested"
+#Check Port values
+$dPorts = CheckPortsValidity -p $Ports
+if($dPorts.Length -eq 0){
+	Write-Error "No available ports to scan." -ErrorAction Stop
+}
+
+$Result = @()
+$i = 1
+
+#Start Scan
+ForEach($target in $Hrange){
+	$ObjTarget = @{}
+	#If DNS resolution
+	if(-not $n){
+		$ObjTarget["Hostname"] = (Resolve-DnsName -Name $target -Type A).IPAddress 
+	}else{
+		$ObjTarget["Hostname"] = $target
+	}
+	#If Ping option
+	if(-not $Pn){
+		#If host is reachable
+		if((SendPing -Hostname $target)){
+			$ObjTarget["Ping"] = "Reachable"
 			##Scan Host
 			$ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
+		}else{
+			$ObjTarget["Ping"] = "Unreachable"
 		}
-		$percentage = ($i / $Hrange.Length) * 100
-		Write-Progress -Id 1 -Activity "Scanning Host" -Status "Current host: $target" -PercentComplete $percentage
-		
-		$Result += $ObjTarget
-		$i += 1
 	}
-}
-end{
-	Printer -Scan $Result
+	#No Ping options
+	else{
+		$ObjTarget["Ping"] = "Not Requested"
+		##Scan Host
+		$ObjTarget["ScanResult"] = Scan -h $target -ps $dPorts -PortList $PortList
+	}
+	$percentage = ($i / $Hrange.Length) * 100
+	Write-Progress -Id 1 -Activity "Scanning Host" -Status "Current host: $target" -PercentComplete $percentage
 	
-	Write-Host "----------------------------------------------"
-	$t2 = Get-Date
-	$elapsed = ($t2-$t1).totalseconds
-	Write-Host "Script execution is terminated at: $t2"
-	Write-Host "Elapsed: " $elapsed
+	$Result += $ObjTarget
+	$i += 1
 }
 
+Printer -Scan $Result
+
+Write-Host "----------------------------------------------"
+$t2 = Get-Date
+$elapsed = ($t2-$t1).totalseconds
+Write-Host "Script execution is terminated at: $t2"
+Write-Host "Elapsed: " $elapsed
 
 #PortScanner -Hosts "192.168.1.0/24" -Ports "22,80,443,445" -Pn -n
