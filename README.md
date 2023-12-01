@@ -5,4 +5,5 @@ This script performs TCP port scans, providing the option to specify an entire n
 ![Examples](./examples.png)
 
 ## TODO
++ Ping Sweep
 + Color in output
